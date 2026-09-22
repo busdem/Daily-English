@@ -8,7 +8,7 @@ void main() {
   test('loads all seed words with valid schema and unique ids', () async {
     final words = await WordRepository().loadWords();
 
-    expect(words.length, 240);
+    expect(words.length, 500);
 
     final ids = words.map((w) => w.id).toList();
     expect(ids.toSet().length, ids.length, reason: 'ids must be unique');
@@ -27,10 +27,10 @@ void main() {
       expect(word.tags, isNotEmpty);
     }
 
-    expect(levelCounts['A2'], 50);
-    expect(levelCounts['B1'], 70);
-    expect(levelCounts['B2'], 70);
-    expect(levelCounts['C1'], 50);
+    expect(levelCounts['A2'], 120);
+    expect(levelCounts['B1'], 170);
+    expect(levelCounts['B2'], 140);
+    expect(levelCounts['C1'], 70);
 
     final meanings = words.map((w) => w.trMeaning).toList();
     expect(
