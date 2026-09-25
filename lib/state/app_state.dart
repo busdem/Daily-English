@@ -130,6 +130,10 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> updateNotificationSettings(NotificationSettings settings) async {
+    final turnedOn = settings.enabled && !notificationSettings.enabled;
+    if (turnedOn) {
+      await _notificationService.requestExactAlarmPermission();
+    }
     notificationSettings = settings;
     await _progressRepository.saveNotificationSettings(settings);
     await _applyNotificationSchedule();

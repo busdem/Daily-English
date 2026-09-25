@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
@@ -28,9 +29,21 @@ class NotificationService {
           AndroidFlutterLocalNotificationsPlugin
         >();
     await androidPlugin?.requestNotificationsPermission();
-    await androidPlugin?.requestExactAlarmsPermission();
 
     _initialized = true;
+  }
+
+  /// Opens the system "Alarms & reminders" page if exact alarms aren't
+  /// allowed. Called only when the user turns the reminder on, so declining
+  /// doesn't get the page reopened on every app start.
+  Future<void> requestExactAlarmPermission() async {
+    await init();
+    final androidPlugin = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    if (await androidPlugin?.canScheduleExactNotifications() ?? true) return;
+    await androidPlugin?.requestExactAlarmsPermission();
   }
 
   Future<void> scheduleDailyReminder({
@@ -38,7 +51,44 @@ class NotificationService {
     required int minute,
   }) async {
     await init();
-    await _plugin.zonedSchedule(
+
+    // SCHEDULE_EXACT_ALARM is denied by default on Android 14+ and can be
+    // revoked by the user, so fall back to an inexact reminder when it's
+    // missing. Since the schedule is reapplied on every app start, a later
+    // grant upgrades the reminder back to exact.
+    final canScheduleExact =
+        await _plugin
+            .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin
+            >()
+            ?.canScheduleExactNotifications() ??
+        true;
+
+    try {
+      await _zonedScheduleDailyReminder(
+        hour,
+        minute,
+        canScheduleExact
+            ? AndroidScheduleMode.exactAllowWhileIdle
+            : AndroidScheduleMode.inexactAllowWhileIdle,
+      );
+    } on PlatformException catch (e) {
+      // The permission can still be revoked between the check and the call.
+      if (e.code != 'exact_alarms_not_permitted') rethrow;
+      await _zonedScheduleDailyReminder(
+        hour,
+        minute,
+        AndroidScheduleMode.inexactAllowWhileIdle,
+      );
+    }
+  }
+
+  Future<void> _zonedScheduleDailyReminder(
+    int hour,
+    int minute,
+    AndroidScheduleMode scheduleMode,
+  ) {
+    return _plugin.zonedSchedule(
       id: _dailyReminderId,
       title: 'Bugünün kelimesi seni bekliyor',
       body: 'Daily English ile bugünkü kelimeni öğrenmeye ne dersin?',
@@ -52,7 +102,7 @@ class NotificationService {
           priority: Priority.defaultPriority,
         ),
       ),
-      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      androidScheduleMode: scheduleMode,
       matchDateTimeComponents: DateTimeComponents.time,
     );
   }
