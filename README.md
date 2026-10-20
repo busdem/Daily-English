@@ -13,9 +13,9 @@ Instead of long word lists, Daily English focuses on understanding each word dee
   - A **common mistake note** written specifically for Turkish learners
   - The Turkish meaning and its **nuance**
 - **Text-to-speech:** Listen to the correct pronunciation.
-- **Quick quiz:** A short quiz after each word to check understanding.
-- **Spaced repetition:** Correct answers double the review interval (up to 30 days); wrong answers bring the word back the next day.
-- **Daily streak:** Tracks your current and longest streak and the number of words learned.
+- **Daily review quiz:** Each day you mark the new word as learned, then answer up to 3 quick 10-second questions on words from earlier days that are due for review. Quizzing days after you met a word tests real recall instead of what you read two seconds ago.
+- **Spaced repetition:** A new word is first reviewed the next day. Correct answers double the review interval (up to 30 days); wrong answers bring the word back the next day.
+- **Daily streak:** A day counts once you have learned the new word and finished that day's reviews. Tracks your current and longest streak and the number of words learned.
 - **Daily reminder:** A local notification at a time you choose in Settings.
 - **Light and dark mode.**
 

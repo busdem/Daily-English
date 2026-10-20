@@ -2,39 +2,35 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/daily_state.dart';
 import '../models/word_progress.dart';
 
 class StreakData {
   final int currentStreak;
   final int longestStreak;
   final DateTime? lastCompletedDate;
-  final String? lastCompletedWordId;
 
   const StreakData({
     required this.currentStreak,
     required this.longestStreak,
     required this.lastCompletedDate,
-    required this.lastCompletedWordId,
   });
 
   static const empty = StreakData(
     currentStreak: 0,
     longestStreak: 0,
     lastCompletedDate: null,
-    lastCompletedWordId: null,
   );
 
   StreakData copyWith({
     int? currentStreak,
     int? longestStreak,
     DateTime? lastCompletedDate,
-    String? lastCompletedWordId,
   }) {
     return StreakData(
       currentStreak: currentStreak ?? this.currentStreak,
       longestStreak: longestStreak ?? this.longestStreak,
       lastCompletedDate: lastCompletedDate ?? this.lastCompletedDate,
-      lastCompletedWordId: lastCompletedWordId ?? this.lastCompletedWordId,
     );
   }
 }
@@ -68,6 +64,7 @@ class NotificationSettings {
 class ProgressRepository {
   static const _progressKey = 'word_progress_map';
   static const _streakKey = 'streak_data';
+  static const _dailyStateKey = 'daily_state';
   static const _notificationKey = 'notification_settings';
 
   Future<Map<String, WordProgress>> loadProgress() async {
@@ -104,7 +101,6 @@ class ProgressRepository {
       lastCompletedDate: decoded['last_completed_date'] == null
           ? null
           : DateTime.parse(decoded['last_completed_date'] as String),
-      lastCompletedWordId: decoded['last_completed_word_id'] as String?,
     );
   }
 
@@ -117,9 +113,21 @@ class ProgressRepository {
           ?.toIso8601String()
           .split('T')
           .first,
-      'last_completed_word_id': streak.lastCompletedWordId,
     };
     await prefs.setString(_streakKey, jsonEncode(encoded));
+  }
+
+  Future<DailyState?> loadDailyState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_dailyStateKey);
+    if (raw == null) return null;
+
+    return DailyState.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+  }
+
+  Future<void> saveDailyState(DailyState state) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_dailyStateKey, jsonEncode(state.toJson()));
   }
 
   Future<NotificationSettings> loadNotificationSettings() async {

@@ -1,3 +1,5 @@
+import '../../core/utils/date_utils.dart';
+
 class WordProgress {
   final String wordId;
   final DateTime nextReviewDue;
@@ -16,7 +18,7 @@ class WordProgress {
   factory WordProgress.initial(String wordId, DateTime today) {
     return WordProgress(
       wordId: wordId,
-      nextReviewDue: today,
+      nextReviewDue: addDays(today, 1),
       reviewIntervalDays: 1,
       correctCount: 0,
       incorrectCount: 0,

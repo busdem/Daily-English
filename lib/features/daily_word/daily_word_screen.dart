@@ -23,90 +23,201 @@ class _DailyWordScreenState extends State<DailyWordScreen> {
     super.dispose();
   }
 
+  void _openReview() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => QuizScreen(appState: widget.appState),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final word = widget.appState.todayWord;
-    if (word == null) {
-      return const Center(child: Text('Kelime listesi yüklenemedi.'));
-    }
-
-    final kind = widget.appState.todayWordKindForToday();
-    final completed = widget.appState.isTodayCompleted;
+    final appState = widget.appState;
+    final theme = Theme.of(context);
+    final newWord = appState.todayNewWord;
+    final completed = appState.isTodayCompleted;
 
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        _KindBadge(kind: kind, completed: completed),
-        const SizedBox(height: 12),
-        _WordCard(word: word, onSpeak: () => _tts.speak(word.word)),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Bugünün görevleri',
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            if (completed)
+              const Chip(
+                avatar: Icon(Icons.check_circle, size: 18),
+                label: Text('Tamamlandı'),
+                visualDensity: VisualDensity.compact,
+              ),
+          ],
+        ),
         const SizedBox(height: 16),
-        _ExampleSection(
-          title: 'Örnek cümle',
-          content: word.exampleNeutral,
+        _ReviewCard(
+          total: appState.reviewTotalToday,
+          done: appState.reviewDoneToday,
+          onStart: _openReview,
         ),
-        const SizedBox(height: 12),
-        _ExampleSection(
-          title: 'Sık yapılan hata',
-          content: word.exampleMistakeNote,
-          icon: Icons.warning_amber_rounded,
+        const SizedBox(height: 20),
+        if (newWord == null)
+          const _AllWordsSeenCard()
+        else
+          ..._newWordSection(newWord, appState.isNewWordLearned),
+      ],
+    );
+  }
+
+  List<Widget> _newWordSection(Word word, bool learned) {
+    return [
+      const Chip(
+        avatar: Icon(Icons.fiber_new_rounded, size: 18),
+        label: Text('Bugünün yeni kelimesi'),
+        visualDensity: VisualDensity.compact,
+      ),
+      const SizedBox(height: 12),
+      _WordCard(word: word, onSpeak: () => _tts.speak(word.word)),
+      const SizedBox(height: 16),
+      _ExampleSection(
+        title: 'Örnek cümle',
+        content: word.exampleNeutral,
+      ),
+      const SizedBox(height: 12),
+      _ExampleSection(
+        title: 'Sık yapılan hata',
+        content: word.exampleMistakeNote,
+        icon: Icons.warning_amber_rounded,
+      ),
+      const SizedBox(height: 12),
+      _ExampleSection(
+        title: 'Türkçe nüans',
+        content: word.trNuance,
+        icon: Icons.translate_rounded,
+      ),
+      const SizedBox(height: 24),
+      FilledButton.icon(
+        onPressed: learned ? null : widget.appState.markNewWordLearned,
+        icon: Icon(learned ? Icons.check_circle : Icons.check_circle_outline),
+        label: Text(learned ? 'Öğrenildi' : 'Öğrendim'),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size.fromHeight(52),
         ),
-        const SizedBox(height: 12),
-        _ExampleSection(
-          title: 'Türkçe nüans',
-          content: word.trNuance,
-          icon: Icons.translate_rounded,
-        ),
-        const SizedBox(height: 24),
-        FilledButton.icon(
-          onPressed: completed
-              ? null
-              : () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => QuizScreen(
-                        appState: widget.appState,
-                        word: word,
-                      ),
-                    ),
-                  ),
-          icon: Icon(completed ? Icons.check_circle : Icons.quiz_outlined),
-          label: Text(completed ? 'Bugün tamamlandı' : 'Kısa quize başla'),
-          style: FilledButton.styleFrom(
-            minimumSize: const Size.fromHeight(52),
+      ),
+      if (learned)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            'Bu kelimeyi yarın tekrar edeceğiz.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall,
           ),
         ),
-      ],
+    ];
+  }
+}
+
+class _ReviewCard extends StatelessWidget {
+  const _ReviewCard({
+    required this.total,
+    required this.done,
+    required this.onStart,
+  });
+
+  final int total;
+  final int done;
+  final VoidCallback onStart;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final remaining = total - done;
+
+    final IconData icon;
+    final String title;
+    final String subtitle;
+    if (total == 0) {
+      icon = Icons.event_available_rounded;
+      title = 'Bugün tekrar yok';
+      subtitle = 'Öğrendiğin kelimeler sırası gelince burada karşına çıkar.';
+    } else if (remaining == 0) {
+      icon = Icons.check_circle_rounded;
+      title = 'Tekrarlar tamamlandı';
+      subtitle = '$total kelime tekrar edildi.';
+    } else {
+      icon = Icons.refresh_rounded;
+      title = 'Günün tekrarları';
+      subtitle = '$remaining kelime seni bekliyor.';
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: theme.colorScheme.primary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(subtitle, style: theme.textTheme.bodyMedium),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (remaining > 0) ...[
+            const SizedBox(height: 12),
+            FilledButton.tonal(
+              onPressed: onStart,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(44),
+              ),
+              child: const Text('Tekrara başla'),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
 
-class _KindBadge extends StatelessWidget {
-  const _KindBadge({required this.kind, required this.completed});
-
-  final TodayWordKind kind;
-  final bool completed;
+class _AllWordsSeenCard extends StatelessWidget {
+  const _AllWordsSeenCard();
 
   @override
   Widget build(BuildContext context) {
-    String label;
-    IconData icon;
-    switch (kind) {
-      case TodayWordKind.newWord:
-        label = 'Bugünün yeni kelimesi';
-        icon = Icons.fiber_new_rounded;
-        break;
-      case TodayWordKind.dueReview:
-        label = 'Tekrar zamanı geldi';
-        icon = Icons.refresh_rounded;
-        break;
-      case TodayWordKind.practice:
-        label = 'Serbest pratik';
-        icon = Icons.self_improvement_rounded;
-        break;
-    }
-    return Chip(
-      avatar: Icon(icon, size: 18),
-      label: Text(completed ? '$label · tamamlandı' : label),
-      visualDensity: VisualDensity.compact,
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Text(
+        'Tüm kelimeleri gördün. Artık sadece tekrarlar var.',
+        style: theme.textTheme.bodyMedium,
+      ),
     );
   }
 }

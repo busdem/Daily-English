@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
 import '../core/utils/date_utils.dart';
+import '../data/models/daily_state.dart';
 import '../data/models/word.dart';
 import '../data/models/word_progress.dart';
 import '../data/repositories/progress_repository.dart';
@@ -10,20 +12,25 @@ import '../data/repositories/word_repository.dart';
 import '../services/notification_service.dart';
 import '../services/spaced_repetition_service.dart';
 
-enum TodayWordKind { newWord, dueReview, practice }
+const int kMaxDailyReviews = 3;
+
+typedef Clock = DateTime Function();
 
 class AppState extends ChangeNotifier {
   AppState({
     WordRepository? wordRepository,
     ProgressRepository? progressRepository,
     NotificationService? notificationService,
+    Clock? clock,
   }) : _wordRepository = wordRepository ?? WordRepository(),
        _progressRepository = progressRepository ?? ProgressRepository(),
-       _notificationService = notificationService ?? NotificationService();
+       _notificationService = notificationService ?? NotificationService(),
+       _clock = clock ?? DateTime.now;
 
   final WordRepository _wordRepository;
   final ProgressRepository _progressRepository;
   final NotificationService _notificationService;
+  final Clock _clock;
 
   bool isLoading = true;
   List<Word> words = [];
@@ -31,102 +38,155 @@ class AppState extends ChangeNotifier {
   StreakData streak = StreakData.empty;
   NotificationSettings notificationSettings = NotificationSettings.defaults;
 
-  Word? _todayWord;
-  TodayWordKind? _todayWordKind;
-  DateTime? _todayWordComputedOn;
+  Map<String, Word> _wordsById = {};
+  DailyState? _daily;
+
+  DateTime get _today => dateOnly(_clock());
 
   Future<void> init() async {
     words = await _wordRepository.loadWords();
+    _wordsById = {for (final word in words) word.id: word};
     progressMap = await _progressRepository.loadProgress();
     streak = await _progressRepository.loadStreak();
     notificationSettings = await _progressRepository.loadNotificationSettings();
+    _daily = await _progressRepository.loadDailyState();
+    _currentDaily();
+    await _completeDayIfDone();
     await _applyNotificationSchedule();
     isLoading = false;
     notifyListeners();
   }
 
-  Word? get todayWord {
-    _ensureTodayWordComputed();
-    return _todayWord;
+  Word? get todayNewWord {
+    final id = _currentDaily().newWordId;
+    return id == null ? null : _wordsById[id];
   }
 
-  TodayWordKind todayWordKindForToday() {
-    _ensureTodayWordComputed();
-    return _todayWordKind ?? TodayWordKind.newWord;
+  bool get isNewWordLearned => _currentDaily().newWordLearned;
+
+  List<Word> get pendingReviewWords {
+    final daily = _currentDaily();
+    return [
+      for (final id in daily.reviewQueueIds)
+        if (!daily.reviewedIds.contains(id)) _wordsById[id]!,
+    ];
   }
 
-  void _ensureTodayWordComputed() {
-    final todayDate = today();
-    if (_todayWord != null && isSameDay(_todayWordComputedOn!, todayDate)) {
-      return;
-    }
-    final word = _computeTodayWord(todayDate);
-    final progress = word == null ? null : progressMap[word.id];
-    _todayWord = word;
-    _todayWordKind = progress == null
-        ? TodayWordKind.newWord
-        : (!progress.nextReviewDue.isAfter(todayDate)
-              ? TodayWordKind.dueReview
-              : TodayWordKind.practice);
-    _todayWordComputedOn = todayDate;
-  }
+  int get reviewTotalToday => _currentDaily().reviewQueueIds.length;
+
+  int get reviewDoneToday => _currentDaily().reviewedIds.length;
 
   bool get isTodayCompleted {
-    final word = todayWord;
-    if (word == null) return false;
-    return streak.lastCompletedWordId == word.id &&
-        streak.lastCompletedDate != null &&
-        isSameDay(streak.lastCompletedDate!, today());
+    final daily = _currentDaily();
+    final newWordDone = daily.newWordId == null || daily.newWordLearned;
+    return newWordDone && daily.reviewedIds.length >= daily.reviewQueueIds.length;
   }
 
-  int get wordsLearnedCount =>
-      progressMap.values.where((p) => p.correctCount >= 1).length;
+  int get wordsLearnedCount => progressMap.length;
 
   List<String> quizOptionsFor(Word word) {
     final others = words.where((w) => w.id != word.id).toList()
       ..shuffle(Random(word.id.hashCode));
     final distractors = others.take(3).map((w) => w.trMeaning).toList();
     final options = [word.trMeaning, ...distractors];
-    options.shuffle(Random(word.id.hashCode ^ today().day));
+    options.shuffle(Random(word.id.hashCode ^ _today.day));
     return options;
   }
 
-  Future<void> submitTodayAnswer(bool correct) async {
-    final word = todayWord;
-    if (word == null) return;
+  Future<void> markNewWordLearned() async {
+    final daily = _currentDaily();
+    final id = daily.newWordId;
+    if (id == null || daily.newWordLearned) return;
 
-    final todayDate = today();
-    final existing = progressMap[word.id] ?? WordProgress.initial(word.id, todayDate);
+    progressMap = {...progressMap, id: WordProgress.initial(id, _today)};
+    _daily = daily.copyWith(newWordLearned: true);
+
+    await _progressRepository.saveProgress(progressMap);
+    await _progressRepository.saveDailyState(_daily!);
+    await _completeDayIfDone();
+    notifyListeners();
+  }
+
+  Future<void> submitReviewAnswer(Word word, bool correct) async {
+    final daily = _currentDaily();
+    final existing = progressMap[word.id];
+    if (existing == null ||
+        !daily.reviewQueueIds.contains(word.id) ||
+        daily.reviewedIds.contains(word.id)) {
+      return;
+    }
+
+    final todayDate = _today;
     final updated = correct
         ? applyCorrectAnswer(existing, todayDate)
         : applyIncorrectAnswer(existing, todayDate);
 
     progressMap = {...progressMap, word.id: updated};
+    _daily = daily.copyWith(reviewedIds: [...daily.reviewedIds, word.id]);
+
     await _progressRepository.saveProgress(progressMap);
-
-    streak = _advanceStreak(word.id, todayDate);
-    await _progressRepository.saveStreak(streak);
-
+    await _progressRepository.saveDailyState(_daily!);
+    await _completeDayIfDone();
     notifyListeners();
   }
 
-  StreakData _advanceStreak(String wordId, DateTime todayDate) {
-    if (streak.lastCompletedDate != null &&
-        isSameDay(streak.lastCompletedDate!, todayDate)) {
-      return streak;
+  DailyState _currentDaily() {
+    final todayDate = _today;
+    final existing = _daily;
+    if (existing != null && isSameDay(existing.date, todayDate)) {
+      return existing;
+    }
+    final built = _buildDailyState(todayDate);
+    _daily = built;
+    unawaited(_progressRepository.saveDailyState(built));
+    return built;
+  }
+
+  DailyState _buildDailyState(DateTime todayDate) {
+    String? newWordId;
+    for (final word in words) {
+      if (!progressMap.containsKey(word.id)) {
+        newWordId = word.id;
+        break;
+      }
     }
 
-    final wasYesterday = streak.lastCompletedDate != null &&
-        isYesterday(streak.lastCompletedDate!, todayDate);
-    final newCurrent = wasYesterday ? streak.currentStreak + 1 : 1;
-    final newLongest = max(streak.longestStreak, newCurrent);
+    final due = progressMap.values
+        .where(
+          (p) =>
+              _wordsById.containsKey(p.wordId) &&
+              !p.nextReviewDue.isAfter(todayDate),
+        )
+        .toList()
+      ..sort((a, b) {
+        final byDate = a.nextReviewDue.compareTo(b.nextReviewDue);
+        return byDate != 0 ? byDate : a.wordId.compareTo(b.wordId);
+      });
 
-    return streak.copyWith(
-      currentStreak: newCurrent,
-      longestStreak: newLongest,
-      lastCompletedDate: todayDate,
-      lastCompletedWordId: wordId,
+    return DailyState(
+      date: todayDate,
+      newWordId: newWordId,
+      newWordLearned: false,
+      reviewQueueIds: due.take(kMaxDailyReviews).map((p) => p.wordId).toList(),
+      reviewedIds: const [],
     );
+  }
+
+  Future<void> _completeDayIfDone() async {
+    if (!isTodayCompleted) return;
+
+    final todayDate = _today;
+    final last = streak.lastCompletedDate;
+    if (last != null && isSameDay(last, todayDate)) return;
+
+    final continues = last != null && isYesterday(last, todayDate);
+    final newCurrent = continues ? streak.currentStreak + 1 : 1;
+    streak = streak.copyWith(
+      currentStreak: newCurrent,
+      longestStreak: max(streak.longestStreak, newCurrent),
+      lastCompletedDate: todayDate,
+    );
+    await _progressRepository.saveStreak(streak);
   }
 
   Future<void> updateNotificationSettings(NotificationSettings settings) async {
@@ -149,32 +209,5 @@ class AppState extends ChangeNotifier {
     } else {
       await _notificationService.cancelDailyReminder();
     }
-  }
-
-  Word? _computeTodayWord(DateTime todayDate) {
-    if (words.isEmpty) return null;
-
-    for (final word in words) {
-      if (!progressMap.containsKey(word.id)) return word;
-    }
-
-    final due = words.where((w) {
-      final progress = progressMap[w.id];
-      return progress != null && !progress.nextReviewDue.isAfter(todayDate);
-    }).toList()
-      ..sort(
-        (a, b) => progressMap[a.id]!.nextReviewDue.compareTo(
-          progressMap[b.id]!.nextReviewDue,
-        ),
-      );
-    if (due.isNotEmpty) return due.first;
-
-    final reviewed = words.where((w) => progressMap.containsKey(w.id)).toList()
-      ..sort(
-        (a, b) => progressMap[b.id]!.nextReviewDue.compareTo(
-          progressMap[a.id]!.nextReviewDue,
-        ),
-      );
-    return reviewed.isNotEmpty ? reviewed.first : words.first;
   }
 }
