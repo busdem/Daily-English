@@ -23,7 +23,7 @@ class ProgressScreen extends StatelessWidget {
               child: _StatCard(
                 icon: Icons.local_fire_department_rounded,
                 iconColor: Colors.orange,
-                value: '${appState.streak.currentStreak}',
+                value: '${appState.activeStreak}',
                 label: 'Güncel seri (gün)',
               ),
             ),

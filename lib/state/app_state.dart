@@ -84,6 +84,14 @@ class AppState extends ChangeNotifier {
 
   int get wordsLearnedCount => progressMap.length;
 
+  int get activeStreak {
+    final last = streak.lastCompletedDate;
+    if (last == null) return 0;
+    final todayDate = _today;
+    final alive = isSameDay(last, todayDate) || isYesterday(last, todayDate);
+    return alive ? streak.currentStreak : 0;
+  }
+
   List<String> quizOptionsFor(Word word) {
     final others = words.where((w) => w.id != word.id).toList()
       ..shuffle(Random(word.id.hashCode));

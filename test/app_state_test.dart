@@ -168,6 +168,28 @@ void main() {
     expect(dayThree.streak.longestStreak, 2);
   });
 
+  test('the displayed streak drops to zero once a day is missed but stays alive until then', () async {
+    await (await _startOn(0)).markNewWordLearned();
+
+    final dayOne = await _startOn(1);
+    await dayOne.submitReviewAnswer(dayOne.pendingReviewWords.first, true);
+    await dayOne.markNewWordLearned();
+    expect(dayOne.activeStreak, 2);
+
+    final dayTwo = await _startOn(2);
+    expect(dayTwo.activeStreak, 2,
+        reason: 'yesterday was completed, so today can still extend the streak');
+
+    final dayThree = await _startOn(3);
+    expect(dayThree.activeStreak, 0);
+    expect(dayThree.streak.longestStreak, 2);
+  });
+
+  test('a fresh install has no streak', () async {
+    final appState = await _startOn(0);
+    expect(appState.activeStreak, 0);
+  });
+
   test('answers for words outside today\'s queue or repeated answers are ignored', () async {
     await (await _startOn(0)).markNewWordLearned();
 
